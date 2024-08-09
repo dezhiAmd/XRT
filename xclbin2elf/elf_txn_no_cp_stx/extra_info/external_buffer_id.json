@@ -1,4 +1,7 @@
 {
+    "ctrlcode" : {
+        "config_uuid" : "2a0829b8-9721-48ad-b6de-680791f8bf4b"
+    },
     "external_buffers": {
         "buffer0": {
             "xrt_id": 0,
