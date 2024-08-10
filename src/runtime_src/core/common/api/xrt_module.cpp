@@ -46,6 +46,7 @@ static constexpr uint8_t Elf_Amd_Aie2ps = 64;
 
 static const char* Scratch_Pad_Mem_Symbol = "scratch-pad-mem";
 static const char* Control_Packet_Symbol = "control-packet";
+static const char* pdi_symbol = "pdi0";
 
 struct buf
 {
@@ -113,6 +114,7 @@ struct patcher
     scalar_32bit_kind = 3,
     control_packet_48 = 4,              // patching scheme needed by firmware to patch control packet
     shim_dma_48 = 5,                    // patching scheme needed by firmware to patch instruction buffer
+    address_64 = 6,                     // patch pdi addres
     unknown_symbol_kind = 8
   };
 
@@ -121,7 +123,8 @@ struct patcher
     ctrldata = 1,       // control packet
     preempt_save = 2,   // preempt_save
     preempt_restore = 3, // preempt_restore
-    buf_type_count = 4   // total number of buf types
+    pdi = 4, // pdi
+    buf_type_count = 5   // total number of buf types
   };
 
   inline static const char*
@@ -130,7 +133,8 @@ struct patcher
     static const char* Section_Name_Array[static_cast<int>(buf_type::buf_type_count)] = { ".ctrltext",
                                                                                           ".ctrldata",
                                                                                           ".preempt_save",
-                                                                                          ".preempt_restore" };
+                                                                                          ".preempt_restore",
+                                                                                          "pdi0"};
 
     return Section_Name_Array[static_cast<int>(bt)];
   }
@@ -316,6 +320,12 @@ public:
       throw std::runtime_error("Not supported");
   }
 
+  [[nodiscard]] virtual const buf&
+      get_pdi() const
+  {
+      throw std::runtime_error("Not supported");
+  }
+
   [[nodiscard]] virtual size_t
       get_scratch_pad_mem_size() const
   {
@@ -460,6 +470,8 @@ class module_elf : public module_impl
   bool m_save_buf_exist = false;
   buf m_restore_buf;
   bool m_restore_buf_exist = false;
+  buf m_pdi_buf;
+  bool m_pdi_buf_exist = false;
   size_t m_scratch_pad_mem_size = 0;
 
   // The ELF sections embed column and page information in their
@@ -546,6 +558,22 @@ class module_elf : public module_impl
     return false;
   }
 
+  // Extract pdi from ELF sections
+  // return true if section exist
+  bool initialize_pdi_buf(const ELFIO::elfio& elf, buf& pdi_buf)
+  {
+    for (const auto& sec : elf.sections) {
+      auto name = sec->get_name();
+      if (name.find(patcher::section_name_to_string(patcher::buf_type::pdi)) == std::string::npos)
+        continue;
+
+      pdi_buf.append_section_data(sec.get());
+      return true;
+    }
+
+    return false;
+  }
+
   // Extract control code from ELF sections without assuming anything
   // about order of sections in the ELF file.  Build helper data
   // structures that manages the control code data for each column and
@@ -626,6 +654,9 @@ class module_elf : public module_impl
 
    else if (m_restore_buf_exist && (section_name == patcher::section_name_to_string(patcher::buf_type::preempt_restore)))
      return { m_restore_buf.size(), patcher::buf_type::preempt_restore };
+
+   else if (m_pdi_buf_exist && (section_name == patcher::section_name_to_string(patcher::buf_type::pdi)))
+     return { m_pdi_buf.size(), patcher::buf_type::pdi };
 
    else
      throw std::runtime_error("Invalid section name " + section_name);
@@ -822,6 +853,8 @@ public:
       if (m_save_buf_exist != m_restore_buf_exist)
         throw std::runtime_error{ "Invalid elf because preempt save and restore is not paired" };
 
+      m_pdi_buf_exist = initialize_pdi_buf(xrt_core::elf_int::get_elfio(m_elf), m_pdi_buf);
+
       m_arg2patcher = initialize_arg_patchers(xrt_core::elf_int::get_elfio(m_elf));
     }
   }
@@ -848,6 +881,12 @@ public:
       get_preempt_restore() const override
   {
       return m_restore_buf;
+  }
+
+  [[nodiscard]] const buf&
+      get_pdi() const override
+  {
+      return m_pdi_buf;
   }
 
   [[nodiscard]] virtual size_t
@@ -934,6 +973,7 @@ class module_sram : public module_impl
   xrt::bo m_scratch_pad_mem;
   xrt::bo m_preempt_save_bo;
   xrt::bo m_preempt_restore_bo;
+  xrt::bo m_pdi_bo;
 
   // Column bo address is the address of the ctrlcode for each column
   // in the (sram) buffer object.  The first ctrlcode is at the base
@@ -1045,7 +1085,8 @@ class module_sram : public module_impl
     fill_bo_with_data(m_instr_bo, data);
 
     if (is_dump_control_codes()) {
-      xrt_core::message::send( xrt_core::message::severity_level::debug, "my_tag", "my_message");
+      std::string message = "ctr_codes size: " + std::to_string(sz);
+      xrt_core::message::send( xrt_core::message::severity_level::debug, "xrt_module", message);
       std::string dump_file_name = "ctr_codes_pre_patch" + std::to_string(get_id()) + ".bin";
       dump_bo(m_instr_bo, dump_file_name);
     }
@@ -1076,6 +1117,24 @@ class module_sram : public module_impl
       m_scratch_pad_mem = xrt::ext::bo{ m_hwctx, m_parent->get_scratch_pad_mem_size() };
       patch_instr(m_preempt_save_bo, Scratch_Pad_Mem_Symbol, 0, m_scratch_pad_mem, patcher::buf_type::preempt_save);
       patch_instr(m_preempt_restore_bo, Scratch_Pad_Mem_Symbol, 0, m_scratch_pad_mem, patcher::buf_type::preempt_restore);
+    }
+
+    const auto& pdi_data = parent->get_pdi();
+    auto pdi_data_size = pdi_data.size();
+
+    if (pdi_data_size > 0) {
+        m_pdi_bo = xrt::bo{ m_hwctx, pdi_data_size, xrt::bo::flags::cacheable, 1 /* fix me */ };
+        fill_bo_with_data(m_pdi_bo, pdi_data);
+
+
+        if (is_dump_control_codes()) {
+            std::string message = "pdi size: " + std::to_string(pdi_data_size);
+            xrt_core::message::send(xrt_core::message::severity_level::debug, "xrt_module", message);
+            std::string dump_file_name = "pdi_pre_patch" + std::to_string(get_id()) + ".bin";
+            dump_bo(m_pdi_bo, dump_file_name);
+        }
+
+        patch_instr(m_pdi_bo, pdi_symbol, 0, m_scratch_pad_mem, patcher::buf_type::pdi);
     }
 
     if (m_ctrlpkt_bo) {
