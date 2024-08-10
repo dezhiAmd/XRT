@@ -29,6 +29,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <sstream>
 
 #ifndef AIE_COLUMN_PAGE_SIZE
 # define AIE_COLUMN_PAGE_SIZE 8192  // NOLINT
@@ -156,9 +157,16 @@ struct patcher
     , m_ctrlcode_patchinfo(std::move(ctrlcode_offset))
   {}
 
+  void
+  patch_64bitaddr(uint32_t* data_to_patch, uint64_t addr)
+  {
+    *data_to_patch = static_cast<uint32_t>(addr & 0xffffffff);
+    *(data_to_patch + 1) = static_cast<uint32_t>((addr >> 32) & 0xffffffff);
+  }
+  
 // Replace certain bits of *data_to_patch with register_value. Which bits to be replaced is specified by mask
-// For     *data_to_patch be 0xbb11aaaa and mask be 0x00ff0000
-// To make *data_to_patch be 0xbb55aaaa, register_value must be 0x00550000
+  // For     *data_to_patch be 0xbb11aaaa and mask be 0x00ff0000
+  // To make *data_to_patch be 0xbb55aaaa, register_value must be 0x00550000
   void
   patch32(uint32_t* data_to_patch, uint64_t register_value, uint32_t mask)
   {
@@ -219,6 +227,10 @@ struct patcher
     for (auto item : m_ctrlcode_patchinfo) {
       auto bd_data_ptr = reinterpret_cast<uint32_t*>(base + item.offset_to_patch_buffer);
       switch (m_symbol_type) {
+      case symbol_type::address_64:
+          // new_value is a 64bit address
+          patch_64bitaddr(bd_data_ptr, new_value);
+        break;
       case symbol_type::scalar_32bit_kind:
         // new_value is a register value
         if (item.mask)
@@ -810,6 +822,18 @@ class module_elf : public module_impl
     }
 
     it->second.patch(base, patch);
+    if (xrt_core::config::get_app_debug()) {
+      if (not_found_use_argument_name) {
+        std::stringstream ss;
+        ss << "Patched " << patcher::section_name_to_string(type) << "use agrument index " << index << "with value " << std::hex << patch;
+        xrt_core::message::send( xrt_core::message::severity_level::debug, "xrt_module", ss.str());
+      }
+      else {
+        std::stringstream ss;
+        ss << "Patched " << patcher::section_name_to_string(type) << "use agrument name " << argnm << "with value " << std::hex << patch;
+        xrt_core::message::send( xrt_core::message::severity_level::debug, "xrt_module", ss.str());
+      }
+    }
     return true;
   }
 
@@ -1126,15 +1150,15 @@ class module_sram : public module_impl
         m_pdi_bo = xrt::bo{ m_hwctx, pdi_data_size, xrt::bo::flags::cacheable, 1 /* fix me */ };
         fill_bo_with_data(m_pdi_bo, pdi_data);
 
-
         if (is_dump_control_codes()) {
-            std::string message = "pdi size: " + std::to_string(pdi_data_size);
-            xrt_core::message::send(xrt_core::message::severity_level::debug, "xrt_module", message);
+            std::stringstream ss;
+            ss << "pdi bo address: " << std::hex << m_pdi_bo.address();
+            xrt_core::message::send(xrt_core::message::severity_level::debug, "xrt_module", ss.str());
             std::string dump_file_name = "pdi_pre_patch" + std::to_string(get_id()) + ".bin";
             dump_bo(m_pdi_bo, dump_file_name);
         }
 
-        patch_instr(m_pdi_bo, pdi_symbol, 0, m_scratch_pad_mem, patcher::buf_type::pdi);
+        patch_instr(m_instr_bo, pdi_symbol, 0, m_pdi_bo, patcher::buf_type::ctrltext);
     }
 
     if (m_ctrlpkt_bo) {
