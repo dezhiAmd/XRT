@@ -29,7 +29,7 @@ public:
     if (!m_elf.load(fnm))
       throw std::runtime_error(fnm + " is not found or is not a valid ELF file");
 
-    if (xrt_core::config::get_app_debug()) {
+    if (xrt_core::config::get_xrt_debug()) {
       std::string message = "Loaded elf file " + fnm;
       xrt_core::message::send( xrt_core::message::severity_level::debug, "xrt_elf", message);
     }
