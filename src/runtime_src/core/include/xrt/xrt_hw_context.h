@@ -113,6 +113,19 @@ public:
   {}
   /// @endcond
 
+  // Added by xclbin_to_elf
+  XRT_API_EXPORT
+  hw_context(const xrt::device& device, uint32_t col_num, access_mode mode);
+
+  ///@cond
+  // Undocumented construction w/o specifying qos
+  // Subject to change in default qos value
+  // Added by xclbin_to_elf
+  hw_context(const xrt::device& device, uint32_t col_num)
+    : hw_context{device, col_num, access_mode::shared}
+  {}
+  /// @endcond
+/// 
   ///@cond
   // Undocumented construction using impl only
   hw_context(std::shared_ptr<hw_context_impl> impl)
