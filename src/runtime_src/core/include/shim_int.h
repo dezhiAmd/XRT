@@ -75,6 +75,14 @@ create_hw_context(xclDeviceHandle handle,
                   const xrt::hw_context::cfg_param_type& cfg_param,
                   xrt::hw_context::access_mode mode);
 
+//Added by xclbin_to_elf
+// create_hw_context() -
+std::unique_ptr<xrt_core::hwctx_handle>
+create_hw_context(xclDeviceHandle handle,
+                  uint16_t col_num,
+                  const xrt::hw_context::cfg_param_type& cfg_param,
+                  xrt::hw_context::access_mode mode);
+
 // get_hw_queue() -
 xrt_core::hwqueue_handle*
 get_hw_queue(xclDeviceHandle handle, xrt_core::hwctx_handle* ctxhdl);
