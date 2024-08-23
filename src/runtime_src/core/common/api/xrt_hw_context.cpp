@@ -53,6 +53,14 @@ public:
     , m_hdl{m_core_device->create_hw_context(xclbin_id, m_cfg_param, m_mode)}
   {}
 
+  // Added by xclbin_to_elf
+  hw_context_impl(std::shared_ptr<xrt_core::device> device, uint16_t col_num, access_mode mode)
+    : m_core_device{std::move(device)}
+    , m_xclbin{}
+    , m_mode{mode}
+    , m_hdl{m_core_device->create_hw_context(col_num, m_cfg_param, m_mode)}
+  {}
+
   std::shared_ptr<hw_context_impl>
   get_shared_ptr()
   {
@@ -219,10 +227,10 @@ hw_context(const xrt::device& device, const xrt::uuid& xclbin_id, access_mode mo
 
 // added by xclbin_to_elf
 static std::shared_ptr<hw_context_impl>
-alloc_hwctx_from_mode(const xrt::device& device, uint32_t col_num, xrt::hw_context::access_mode mode)
+alloc_hwctx_from_mode(const xrt::device& device, uint16_t col_num, xrt::hw_context::access_mode mode)
 {
   XRT_TRACE_POINT_SCOPE(xrt_hw_context);
-  auto handle = std::make_shared<hw_context_impl>(device.get_handle(), xclbin_id, mode);
+  auto handle = std::make_shared<hw_context_impl>(device.get_handle(), col_num, mode);
 
   // Update device is called with a raw pointer to dyanamically
   // link to callbacks that exist in XDP via a C-style interface
@@ -237,7 +245,7 @@ alloc_hwctx_from_mode(const xrt::device& device, uint32_t col_num, xrt::hw_conte
 
 // added by xclbin_to_elf
 hw_context::
-hw_context(const xrt::device& device, uint32_t col_num, access_mode mode)
+hw_context(const xrt::device& device, uint16_t col_num, access_mode mode)
   : detail::pimpl<hw_context_impl>(alloc_hwctx_from_mode(device, col_num, mode))
 {}
 

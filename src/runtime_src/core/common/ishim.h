@@ -154,6 +154,12 @@ struct ishim
                     const xrt::hw_context::cfg_param_type& /*cfg_params*/,
                     xrt::hw_context::access_mode /*mode*/) const = 0;
 
+  // Added by xclbin_to_elf
+  virtual std::unique_ptr<hwctx_handle>
+  create_hw_context(uint16_t col_num,
+                    const xrt::hw_context::cfg_param_type& /*cfg_params*/,
+                    xrt::hw_context::access_mode /*mode*/) const = 0;
+
   // Registers an xclbin with shim, but does not load it.
   // This is no-op for most platform shims
   virtual void
